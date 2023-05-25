@@ -1,0 +1,49 @@
+---
+title: "Vitality Analysis"
+format: html
+editor: visual
+---
+
+## Step 1:
+Match LBW, mortality rates (unadjusted), and premature mortality with Heni's dataset 
+
+
+```{r}
+#heni's data: 
+
+heni = haven::read_sas("P:/CH-Ranking/Research/model 2.0/WI vitality data/Heni/lbw_mort_wi_heni_updated_fips.sas7bdat")
+
+#raw data 
+#create a list of the files from your target directory
+file_list <- list.files(path="P:/CH-Ranking/Research/model 2.0/WI vitality data/updated data")
+
+#initiate a blank data frame, each iteration of the loop will append the data from the given file to this variable
+lbw = data.frame()
+dth = data.frame()
+#had to specify columns to get rid of the total column
+for (i in 1:length(file_list)){
+  temp_file = file_list[i]
+  if (grepl("lbw", temp_file, fixed = TRUE) == TRUE) {
+  temp_data <- haven::read_sas(paste0("P:/CH-Ranking/Research/model 2.0/WI vitality data/updated data/", temp_file)) 
+  temp_data$year = substr(as.numeric(gsub("\\D", "", temp_file)), 1, nchar(as.numeric(gsub("\\D", "", temp_file)))-1) 
+  lbw <- rbind(lbw, temp_data) #for each iteration, bind the new data to the building dataset
+  } else {
+  temp_data <- haven::read_sas(paste0("P:/CH-Ranking/Research/model 2.0/WI vitality data/updated data/", temp_file)) 
+  temp_data$year = substr(as.numeric(gsub("\\D", "", temp_file)), 1, nchar(as.numeric(gsub("\\D", "", temp_file)))-1) 
+  dth <- rbind(dth, temp_data) #for each iteration, bind the new data to the building dataset
+  }
+}
+
+library(dplyr)
+totlbw = lbw %>% group_by(year, res_census_block) %>% 
+  summarise(totalBirth = sum(totalBirth),
+            totalLBW = sum(totalLBW))
+totdth = dth %>% group_by(year, res_census_block) %>% 
+  mutate(sumDeath = sum(totalDeath))
+totdth = totdth %>% 
+  filter(!(age_group %in% c("75-79", "80-84", "85+"))) %>% 
+  group_by(year, res_census_block) %>% 
+           mutate(premature = sum(totalDeath))
+
+```
+
