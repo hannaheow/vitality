@@ -34,6 +34,8 @@ for (i in 1:length(file_list)){
   }
 }
 
+
+
 library(dplyr)
 totlbw = lbw %>% group_by(year, res_census_block) %>% 
   summarise(totalBirth = sum(totalBirth),
@@ -45,5 +47,7 @@ totdth = totdth %>%
   group_by(year, res_census_block) %>% 
            mutate(premature = sum(totalDeath))
 
+
+i am making changes here 
 ```
 
