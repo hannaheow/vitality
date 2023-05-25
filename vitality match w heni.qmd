@@ -40,14 +40,97 @@ library(dplyr)
 totlbw = lbw %>% group_by(year, res_census_block) %>% 
   summarise(totalBirth = sum(totalBirth),
             totalLBW = sum(totalLBW))
+sum(is.na(totlbw$totalBirth))
+
 totdth = dth %>% group_by(year, res_census_block) %>% 
   mutate(sumDeath = sum(totalDeath))
 totdth = totdth %>% 
   filter(!(age_group %in% c("75-79", "80-84", "85+"))) %>% 
   group_by(year, res_census_block) %>% 
-           mutate(premature = sum(totalDeath))
+           mutate(sumPremort = sum(totalDeath)) %>% 
+  distinct(res_census_block, year, sumDeath, sumPremort)
 
 
-i am making changes here 
+
+```
+
+
+
+# Missingness 
+
+Per Heni's instructions, I expect to see missings in the LBW dataset, however I do not..... Is this a mistake on my part? Or did the data just load in R differently than it did in SAS? I also do not see evidence of special characters indicating missings 
+
+Number of NAs per column for each of the initial datasets 
+
+```{r}
+colSums(is.na(dth))
+
+colSums(is.na(lbw))
+```
+
+Upon further investigation, I see that each census tract does not contain data for each year. In order to calculate cumulative sums, it is helpful to create dummy rows for these missing year and census tract combinations. 
+
+
+```{r}
+totlbw$year = as.numeric(totlbw$year)
+totdth$year = as.numeric(totdth$year)
+
+library(tidyr)
+totlbw_c = totlbw %>% group_by(res_census_block) %>% complete(year = seq(2012, 2021, 1)) %>% 
+  fill(totalBirth, totalLBW) %>% 
+  mutate(totalBirth = replace_na(totalBirth, 0),
+         totalLBW = replace_na(totalLBW, 0))
+
+
+
+totdth_c = totdth %>% group_by(res_census_block) %>% complete(year = seq(2012, 2021, 1)) %>% 
+  fill(sumDeath, sumPremort) %>% 
+  mutate(sumDeath = replace_na(sumDeath, 0), 
+         sumPremort = replace_na(sumPremort, 0))
+  
+```
+
+There were `r nrow(totlbw_c) - nrow(totlbw)` census tract and year combinations that needed to be appended to the original LBW dataset. 
+
+There were `r nrow(totdth_c) - nrow(totdth)` census tract, year, and age group combinations that needed to be appended to the original DTH dataset. 
+
+There are more observations in the mortality dataset than in the LBW dataset. This makes sense since LBW is often more missing/more private. 
+
+# Two special datasets 
+
+In Heni's instructions, she indicates that the LBW data should be grouped in 2012-2018 and 2019-2021 datasets before calculations are made... I can't tell why this step is necessary - am I missing something? 
+
+# Calculation of rolling sums 
+
+```{r}
+
+
+library(RcppRoll)
+lbw_roll = totlbw_c %>% arrange(year) %>% group_by(res_census_block) %>% 
+  mutate(twoyearBirths = roll_sum(totalBirth, 2, fill = NA, align = "left"),
+         threeyearBirths = roll_sum(totalBirth, 3, fill = NA, align = "left"),
+         fiveyearBirths = roll_sum(totalBirth, 5, fill = NA, align = "left"),
+         sevenyearBirths = roll_sum(totalBirth, 7, fill = NA, align = "left"),
+         tenyearBirths = roll_sum(totalBirth, 10, fill = NA, align = "left"),
+         twoyearLBW = roll_sum(totalLBW, 2, fill = NA, align = "left"),
+         threeyearLBW = roll_sum(totalLBW, 3, fill = NA, align = "left"),
+         fiveyearLBW = roll_sum(totalLBW, 5, fill = NA, align = "left"),
+         sevenyearLBW = roll_sum(totalLBW, 7, fill = NA, align = "left"),
+         tenyearLBW = roll_sum(totalLBW, 10, fill = NA, align = "left"))
+
+
+dth_roll = totdth_c %>% arrange(year) %>% group_by(res_census_block) %>% 
+  mutate(twoyeardeath = roll_sum(totalBirth, 2, fill = NA, align = "left"),
+         threeyeardeath = roll_sum(totalBirth, 3, fill = NA, align = "left"),
+         fiveyeardeath = roll_sum(totalBirth, 5, fill = NA, align = "left"),
+         sevenyeardeath = roll_sum(totalBirth, 7, fill = NA, align = "left"),
+         tenyeardeath = roll_sum(totalBirth, 10, fill = NA, align = "left"),
+         twoyearLBW = roll_sum(totalLBW, 2, fill = NA, align = "left"),
+         threeyearLBW = roll_sum(totalLBW, 3, fill = NA, align = "left"),
+         fiveyearLBW = roll_sum(totalLBW, 5, fill = NA, align = "left"),
+         sevenyearLBW = roll_sum(totalLBW, 7, fill = NA, align = "left"),
+         tenyearLBW = roll_sum(totalLBW, 10, fill = NA, align = "left"))
+
+
 ```
 
