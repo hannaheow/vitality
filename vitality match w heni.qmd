@@ -201,13 +201,17 @@ summary(heni$threeyear_sumLBW_2012to14)
 
 summary(lbwsub_roll$fiveyearLBWrate[lbwsub_roll$year == 2017])
 summary(heni$fiveyear_LBWrate_2017to21)   
+sum(!is.na(heni$fiveyear_LBWrate_2017to21))
+length(lbwsub_roll$fiveyearLBWrate[lbwsub_roll$year == 2017])
 
 
 summary(lbwsub_roll$threeyearLBWrate[lbwsub_roll$year == 2017])
 summary(heni$threeyear_LBWrate_2017to19) 
- 
+sum(!is.na(heni$threeyear_LBWrate_2017to19))
+length(lbwsub_roll$threeyearLBWrate[lbwsub_roll$year == 2017])
 ```
-Some evidence of either rounding errors or mishandling of missings by either me or Heni, hard to say for sure; need to do more digging 
+Some evidence of either rounding errors or mishandling of missings by either me or Heni, hard to say for sure; need to do more digging - either way, any potential differences are unsubstantial 
+
 
 # Get ACS data for population estimates to calculate mortality rates 
 Whole population = male total + female = total 
