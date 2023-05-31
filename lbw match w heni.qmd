@@ -1,14 +1,20 @@
 ---
-title: "Vitality Analysis"
+title: "Match LBW with Heni's Data"
 format: html
 editor: visual
+editor_options: 
+  chunk_output_type: console
 ---
+Should have 1669 tracts in WI in final cleaned DHS data
 
-# Step 1:
-Match LBW, mortality rates (unadjusted), and premature mortality with Heni's dataset 
+1409 CTs in 2010 from census 
 
+1542 CTS in 2020 from census 
 
-I will complete Step 1 for LBW first since it does not require ACS data 
+# To do: 
+Need to fix total number of CTs using this file https://www2.census.gov/geo/docs/maps-data/data/rel2020/tract/tab20_tract20_tract10_natl.txt
+and then reconcile any additional differences w Heni 
+
 
 ```{r, message = FALSE, warning = FALSE}
 #heni's data: 
@@ -60,18 +66,9 @@ totdth = totdth %>%
 
 # Missingness 
 
-Per Heni's instructions, I expect to see missings in the LBW dataset, however I do not..... Is this a mistake on my part? Or did the data just load in R differently than it did in SAS? I also do not see evidence of special characters indicating missings 
+Each census tract does not contain data for each year. It is likely that the 2012-2018 data is built upon a different set of CTs than the 2019-2020 data. In order to calculate cumulative sums, it is helpful to create dummy rows for these missing year and census tract combinations. 
 
-Number of NAs per column for each of the initial datasets 
-
-```{r, message = FALSE, warning = FALSE}
-colSums(is.na(dth))
-
-colSums(is.na(lbw))
-```
-
-Upon further investigation, I see that each census tract does not contain data for each year. In order to calculate cumulative sums, it is helpful to create dummy rows for these missing year and census tract combinations. 
-
+First I create dummy rows for ALL years, regardless of whether we expect each CT to be present for that year or not 
 
 ```{r, message = FALSE, warning = FALSE}
 totlbw$year = as.numeric(totlbw$year)
@@ -100,16 +97,63 @@ There are more observations in the mortality dataset than in the LBW dataset. Th
 
 # Two special datasets 
 
-In Heni's instructions, she indicates that the LBW data should be grouped in 2012-2018 and 2019-2021 datasets before calculations are made... I can't tell why this step is necessary - am I missing something? 
+Next, I create dummy rows for missing years between 2012-2018 separately from CTs that are missing from 2019-2021 since we expect the CTs available in 2012-2018 to be different from the CTs available in 2019-2021. 
 
+```{r}
+totlbw_c_1218 = totlbw %>% filter(year <2019) %>% 
+  group_by(res_census_block) %>% complete(year = seq(2012, 2018, 1)) %>% 
+  fill(totalBirth, totalLBW) %>% 
+  mutate(totalBirth = replace_na(totalBirth, 0),
+         totalLBW = replace_na(totalLBW, 0))
+
+totlbw_c_1921 = totlbw %>% filter(year >=2019) %>% 
+  group_by(res_census_block) %>% complete(year = seq(2019,2021, 1)) %>% 
+  fill(totalBirth, totalLBW) %>% 
+  mutate(totalBirth = replace_na(totalBirth, 0),
+         totalLBW = replace_na(totalLBW, 0))
+
+totlbw_c_sep = rbind(totlbw_c_1218, totlbw_c_1921)
+
+totdth_c_1218 = totdth %>% filter(year<2019) %>% 
+  group_by(res_census_block) %>% complete(year = seq(2012,2018, 1)) %>% 
+  fill(sumDeath, sumPremort) %>% 
+  mutate(sumDeath = replace_na(sumDeath, 0), 
+         sumPremort = replace_na(sumPremort, 0))
+
+totdth_c_1921 = totdth %>% filter(year>=2019) %>% 
+  group_by(res_census_block) %>% complete(year = seq(2019, 2021, 1)) %>% 
+  fill(sumDeath, sumPremort) %>% 
+  mutate(sumDeath = replace_na(sumDeath, 0), 
+         sumPremort = replace_na(sumPremort, 0))
+
+
+totdth_c_sep = rbind(totdth_c_1218, totdth_c_1921)
+```
+When we add missing/dummy rows without creating two separate year groupings, there are a total of `r nrow(totdth_c)` rows of death data available for a total of `r length(unique(totdth_c$res_census_block))` unique CTs. Meanwhile, when we add missing/dummy rows separately for 2012-2018 and 2019-2021, there are a total of `r nrow(totdth_c_sep)` rows of death data available for a total of `r length(unique(totdth_c_sep$res_census_block))` unique CTs. Similar differences are seen in the birth datasets, as shown in the table below:   
+```{r}
+
+table = data.frame(type = c("Death", "Birth"), 
+                   `N Unique CTs` = c(length(unique(totdth_c_sep$res_census_block)), 
+                                      length(unique(totlbw_c_sep$res_census_block))),
+                   `Separate total rows` = c(nrow(totdth_c_sep), nrow(totlbw_c_sep)), 
+                   `Together total rows` = c(nrow(totdth_c), nrow(totlbw_c))
+                   )
+
+
+knitr::kable(table)                         
+ 
+
+
+```
 
 # Calculation of rolling sums for LBW 
 
+I calculate rolling sums once using the dataset where missings were changed to zeroes separately for 2012-2018 and 2019-2021 and once using the dataset where missings where changed to zeroes for all years 2012-2021. I do this because when the rolling sums are calculated, CTs with data for only the 2012-2018 group or only the 2019-2021 group will end up with missing rolling sums.  
 ```{r, message = FALSE, warning = FALSE}
 
 
 library(RcppRoll)
-lbw_roll = totlbw_c %>% arrange(year) %>% group_by(res_census_block) %>% 
+lbw_roll = totlbw_c_sep %>% arrange(year) %>% group_by(res_census_block) %>% 
   mutate(twoyearBirths = roll_sum(totalBirth, 2, fill = NA, align = "left"),
          threeyearBirths = roll_sum(totalBirth, 3, fill = NA, align = "left"),
          fiveyearBirths = roll_sum(totalBirth, 5, fill = NA, align = "left"),
@@ -126,8 +170,28 @@ lbw_roll$threeyearLBWrate = lbw_roll$threeyearLBW/lbw_roll$threeyearBirths
 lbw_roll$fiveyearLBWrate = lbw_roll$fiveyearLBW/lbw_roll$fiveyearBirths
 lbw_roll$sevenyearLBWrate = lbw_roll$sevenyearLBW/lbw_roll$sevenyearBirths
 lbw_roll$tenyearLBWrate = lbw_roll$tenyearLBW/lbw_roll$tenyearBirths
-                                    
-       
+     
+
+
+
+                               
+lbw_roll_tog = totlbw_c %>% arrange(year) %>% group_by(res_census_block) %>% 
+  mutate(twoyearBirths = roll_sum(totalBirth, 2, fill = NA, align = "left"),
+         threeyearBirths = roll_sum(totalBirth, 3, fill = NA, align = "left"),
+         fiveyearBirths = roll_sum(totalBirth, 5, fill = NA, align = "left"),
+         sevenyearBirths = roll_sum(totalBirth, 7, fill = NA, align = "left"),
+         tenyearBirths = roll_sum(totalBirth, 10, fill = NA, align = "left"),
+         twoyearLBW = roll_sum(totalLBW, 2, fill = NA, align = "left"),
+         threeyearLBW = roll_sum(totalLBW, 3, fill = NA, align = "left"),
+         fiveyearLBW = roll_sum(totalLBW, 5, fill = NA, align = "left"),
+         sevenyearLBW = roll_sum(totalLBW, 7, fill = NA, align = "left"),
+         tenyearLBW = roll_sum(totalLBW, 10, fill = NA, align = "left"))
+
+lbw_roll_tog$twoyearLBWrate = lbw_roll_tog$twoyearLBW/lbw_roll_tog$twoyearBirths
+lbw_roll_tog$threeyearLBWrate = lbw_roll_tog$threeyearLBW/lbw_roll_tog$threeyearBirths
+lbw_roll_tog$fiveyearLBWrate = lbw_roll_tog$fiveyearLBW/lbw_roll_tog$fiveyearBirths
+lbw_roll_tog$sevenyearLBWrate = lbw_roll_tog$sevenyearLBW/lbw_roll_tog$sevenyearBirths
+lbw_roll_tog$tenyearLBWrate = lbw_roll_tog$tenyearLBW/lbw_roll_tog$tenyearBirths       
 ```
 
 
@@ -163,6 +227,10 @@ This is a crude check of our rates
 
 ```{r, message = FALSE, warning = FALSE}
 lbwsub = lbw_rates %>% filter(res_census_block %in% heni$res_census_block)
+
+lbw_rates %>% filter(!res_census_block %in% heni$res_census_block)
+heni %>% filter(!res_census_block %in% lbw_rates$res_census_block)
+
 summary(lbwsub$lbwrate[lbwsub$year == 2012])
 summary(heni$LBW_rate_2012)     
 
@@ -191,97 +259,51 @@ If so, maybe we still want to count them? Not sure
 
 
 Now a crude comparison of my rolling CT rates to Heni's rolling CT rates  
-
+Note that it is only the rolling rates for which missings need to be replaced with 0. 
 
 ```{r, message = FALSE, warning = FALSE}
 lbwsub_roll = lbw_roll %>% filter(res_census_block %in% heni$res_census_block)
 
-summary(lbwsub_roll$threeyearLBW[lbwsub_roll$year == 2012])
+summary(lbwsub_roll$threeyearLBW[lbwsub_roll$year == 2012]) # there are no NAs yet since 2012 is the first year - all three year sums exist 
 summary(heni$threeyear_sumLBW_2012to14)     
+sum(!is.na(heni$threeyear_sumLBW_2012to14))
+length(lbwsub_roll$threeyearLBW[lbwsub_roll$year == 2012])
 
+summary(lbwsub_roll$fiveyearLBWrate[lbwsub_roll$year == 2017 & !is.na(lbwsub_roll$fiveyearLBWrate)])
 summary(lbwsub_roll$fiveyearLBWrate[lbwsub_roll$year == 2017])
 summary(heni$fiveyear_LBWrate_2017to21)   
 sum(!is.na(heni$fiveyear_LBWrate_2017to21))
 length(lbwsub_roll$fiveyearLBWrate[lbwsub_roll$year == 2017])
+
+temp = lbwsub_roll[is.na(lbwsub_roll$fiveyearLBWrate) & lbwsub_roll$year == 2017,] # this likely is a CT that has no 2021 data  
+temp = lbwsub_roll %>% filter(res_census_block == "55025001102")
+# indeed, this CT only has data for 2012 through 2018 
 
 
 summary(lbwsub_roll$threeyearLBWrate[lbwsub_roll$year == 2017])
 summary(heni$threeyear_LBWrate_2017to19) 
 sum(!is.na(heni$threeyear_LBWrate_2017to19))
 length(lbwsub_roll$threeyearLBWrate[lbwsub_roll$year == 2017])
+
+
+temp = lbwsub_roll[lbwsub_roll$year == 2017 & lbwsub_roll$threeyearLBWrate >0.3,]
+temp = lbwsub_roll[lbwsub_roll$res_census_block == "55063000402",]
+#bizarre that the most extreme five year rate in my data happens to have the same three year rate as the maximum in heni's data........ almost makes me wonder if something was mislabeled 
 ```
-Some evidence of either rounding errors or mishandling of missings by either me or Heni, hard to say for sure; need to do more digging - either way, any potential differences are unsubstantial 
+Some evidence of mishandling of missings by either me or Heni, hard to say for sure; need to do more digging - either way, any potential differences are unsubstantial. 
+Would help me to understand what the rolling sums will be used for. 
+
+The way my rolling sums are calculated, if a county does not have data for each year in the sequence of years (ie 2012 - 2019 for 7 year sum), the sum will not be calculated. So, when the missings are switched to zeroes by group, there will be more missing rolling sums since there may be CTs which do not have data for one year grouping or another.  
+
+My data does not have the same number of unique census tracts as Heni's. However, we do have the same number of census tracts with lbwrates..... so it seems that maybe Heni's data draws from the CT relational files to get exactly the number of possible CTs in WI from 2010 through 2020. 
 
 
-# Get ACS data for population estimates to calculate mortality rates 
-Whole population = male total + female = total 
+```{r}
+lbwhow = merge(lbwsub, lbwsub_roll, by= c("res_census_block", "year"), all = TRUE)
+write.csv(lbwhow, "P:/CH-Ranking/Research/model 2.0/WI vitality data/Hannah/lbw_how.csv", row.names = FALSE)
 
-under 75 population = total - sum of all individuals older than 75 
-
-```{r, message = FALSE, warning = FALSE}
-vars = tidycensus::load_variables(2020, "acs5", cache = TRUE) #temp dataset to examine which vars are available thru acs without having to go to acs webpage 
-
-years = unique(dth$year)
-
-allacs = data.frame() 
-for (i in 1:length(years)) {
-acs = tidycensus::get_acs(geography = "tract", 
-                          state = "WI", 
-                          variables = c(totpop = "B01001_001", 
-                                        m85pop = "B01001_025",
-                                        m80pop = "B01001_024", 
-                                        m75pop = "B01001_023",
-                                        mtot = "B01001_002",
-                                        ftot = "B01001_026", 
-                                        f75pop = "B01001_047",
-                                        f80pop = "B01001_048",
-                                        f85pop = "B01001_049"), 
-                                        year = as.numeric(years[i]))
-acs$year = years[i]
-allacs = rbind(acs, allacs)
-}
-acsw = pivot_wider(allacs, id_cols = c(GEOID,year), names_from = variable, values_from = estimate)
-temp = acsw$totpop - (acsw$ftot + acsw$mtot) #confirmation that ftot + mtot = totpop 
- 
-pops = acsw %>% group_by(GEOID, year) %>% 
-  mutate(sub75 = totpop - m85pop - m80pop - m75pop
-         - f85pop - f80pop - f75pop) %>% 
-  select(totpop, sub75, GEOID, year) 
-pops$statecode = substr(pops$GEOID, 1,2) 
-pops$countycode = substr(pops$GEOID, 3,5)
-pops$tract = substr(pops$GEOID, 6, nchar(pops$GEOID))
-
-```
-
-# Merge Pops with DHS data 
-
-
-```{r, message = FALSE, warning = FALSE}
-dthpop = merge(totdth, pops, by.x = c("res_census_block", "year"), by.y = c("GEOID", "year"))
-```
-
-
-
-
-# Calculation of rolling sums for Mortality and Premortality 
-
-```{r, message = FALSE, warning = FALSE}
-
-
-library(RcppRoll)
-
-
-dth_roll = totdth_c %>% arrange(year) %>% group_by(res_census_block) %>% 
-  mutate(twoyeardeath = roll_sum(sumDeath, 2, fill = NA, align = "left"),
-         threeyeardeath = roll_sum(sumDeath, 3, fill = NA, align = "left"),
-         fiveyeardeath = roll_sum(sumDeath, 5, fill = NA, align = "left"),
-         sevenyeardeath = roll_sum(sumDeath, 7, fill = NA, align = "left"),
-         tenyeardeath = roll_sum(sumDeath, 10, fill = NA, align = "left"),
-         twoyearPremort = roll_sum(sumPremort, 2, fill = NA, align = "left"),
-         threeyearPremort = roll_sum(sumPremort, 3, fill = NA, align = "left"),
-         fiveyearPremort = roll_sum(sumPremort, 5, fill = NA, align = "left"),
-         sevenyearPremort = roll_sum(sumPremort, 7, fill = NA, align = "left"),
-         tenyearPremort = roll_sum(sumPremort, 10, fill = NA, align = "left"))
+length(unique(heni$res_census_block))
+length(unique(lbwhow$res_census_block))
 
 
 ```
@@ -289,25 +311,20 @@ dth_roll = totdth_c %>% arrange(year) %>% group_by(res_census_block) %>%
 
 
 
-this is a change 
-this is another change 
 
 
-# Calculation of Mortality and Premortality Rates for each CT 
-```{r, message = FALSE, warning = FALSE}
 
 
-dth_rates = totdth %>% group_by(res_census_block, year) %>% 
-  mutate(dthrate = sumDeath)
-```
+
+
+
+
 
 
 
 
 Questions for the group: 
 what are the rolling averages for? I understand the five year ones (For use w ACS data) but I do not yet understand the need for two and three year rolling averages 
-
-What is the intention with the ACS five year estimates? Do we divide by 5 to get an approximate population for each single year? 
 
 How does DHS decide which births get counted? There are births from 18 different states in the data from DHS 
 
